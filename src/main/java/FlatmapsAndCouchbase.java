@@ -7,31 +7,22 @@ import com.couchbase.client.java.view.AsyncViewResult;
 import com.couchbase.client.java.view.AsyncViewRow;
 import com.couchbase.client.java.view.Stale;
 import com.couchbase.client.java.view.ViewQuery;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.mitchellbosecke.pebble.PebbleEngine;
-import com.mitchellbosecke.pebble.loader.StringLoader;
-import com.mitchellbosecke.pebble.template.PebbleTemplate;
 import lombok.extern.log4j.Log4j2;
 import net.spy.memcached.internal.BasicThreadFactory;
 import rx.Observable;
 import rx.Subscriber;
-import rx.functions.Action1;
 import rx.functions.Func1;
 import rx.schedulers.Schedulers;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 
 import static com.couchbase.client.java.document.json.JsonArray.from;
 
 @Log4j2
-public class ObserveSubscribeFlatmaps {
+public class FlatmapsAndCouchbase {
     public static final String AIRPORT_PAGE = "airport_page";
     public static final String utf8EndToken = "\u02ad";
 
@@ -43,14 +34,14 @@ public class ObserveSubscribeFlatmaps {
     final ExecutorService execB;
     final ExecutorService execC;
 
-    public ObserveSubscribeFlatmaps() {
+    public FlatmapsAndCouchbase() {
         this.execA = Executors.newCachedThreadPool(new BasicThreadFactory("execA", false));
         this.execB = Executors.newCachedThreadPool(new BasicThreadFactory("execB", false));
         this.execC = Executors.newCachedThreadPool(new BasicThreadFactory("execC", false));
     }
 
     public static void main(String[] args) throws IOException {
-        new ObserveSubscribeFlatmaps().start();
+        new FlatmapsAndCouchbase().start();
         System.in.read();
     }
 
@@ -61,7 +52,7 @@ public class ObserveSubscribeFlatmaps {
                                 .stale(Stale.TRUE)
                                 .startKey(from("fr"))
                                 .reduce(false)
-                                .limit(5)
+                                .limit(1000)
                                 .endKey(from("fr", utf8EndToken))
                 )
                 .flatMap(new Func1<AsyncViewResult, Observable<AsyncViewRow>>() {
@@ -72,35 +63,37 @@ public class ObserveSubscribeFlatmaps {
                 })
                 .flatMap(new Func1<AsyncViewRow, Observable<LegacyDocument>>() {
                     @Override
-                    public Observable<LegacyDocument> call(AsyncViewRow asyncViewRow) {return asyncViewRow.document(LegacyDocument.class);
+                    public Observable<LegacyDocument> call(AsyncViewRow asyncViewRow) {
+                        return asyncViewRow.document(LegacyDocument.class)
+//                                .subscribeOn(Schedulers.from(execA))
+                                ;
                     }
                 })
                 .flatMap(new Func1<LegacyDocument, Observable<String>>() {
                     @Override
-                    public Observable<String> call(final LegacyDocument legacyDocument) {
-                        return getStringObservable(legacyDocument);
+                    public Observable<String> call(LegacyDocument doc) {
+                        return slowConsumer(doc.content().toString())
+                                .subscribeOn(Schedulers.from(execB))
+                                ;
                     }
                 })
-                .flatMap(new Func1<String, Observable<String>>() {
-                    @Override
-                    public Observable<String> call(String string) {return slowConsumer(string);
-                    }
-                }).subscribe(
-                new Subscriber<String>() {
-                    @Override
-                    public void onCompleted() {
-                        log.info("COMPLETE");
-                    }
+//                .observeOn(Schedulers.from(execC))
+                .subscribe(
+                        new Subscriber<String>() {
+                            @Override
+                            public void onCompleted() {
+                                log.info("COMPLETE");
+                            }
 
-                    @Override
-                    public void onError(Throwable e) {
-                        log.info("ERROR", e);
-                    }
+                            @Override
+                            public void onError(Throwable e) {
+                                log.info("ERROR", e);
+                            }
 
-                    @Override
-                    public void onNext(String s) {
-                    }
-                });
+                            @Override
+                            public void onNext(String s) {
+                            }
+                        });
     }
 
     private Observable<String> getStringObservable(final LegacyDocument legacyDocument) {
@@ -117,7 +110,7 @@ public class ObserveSubscribeFlatmaps {
             @Override
             public void call(Subscriber<? super String> subscriber) {
                 try{
-                    Thread.sleep(100);
+                    Thread.sleep(1000);
                     log.info(string);
                     subscriber.onNext(string);
                     subscriber.onCompleted();
