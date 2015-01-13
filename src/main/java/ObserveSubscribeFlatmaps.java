@@ -61,7 +61,7 @@ public class ObserveSubscribeFlatmaps {
                                 .stale(Stale.TRUE)
                                 .startKey(from("fr"))
                                 .reduce(false)
-                                .limit(5)
+                                .limit(10)
                                 .endKey(from("fr", utf8EndToken))
                 )
                 .flatMap(new Func1<AsyncViewResult, Observable<AsyncViewRow>>() {
@@ -72,18 +72,26 @@ public class ObserveSubscribeFlatmaps {
                 })
                 .flatMap(new Func1<AsyncViewRow, Observable<LegacyDocument>>() {
                     @Override
-                    public Observable<LegacyDocument> call(AsyncViewRow asyncViewRow) {return asyncViewRow.document(LegacyDocument.class);
+                    public Observable<LegacyDocument> call(AsyncViewRow asyncViewRow) {
+                        return asyncViewRow.document(LegacyDocument.class)
+//                                .subscribeOn(Schedulers.from(execA))
+                                ;
                     }
                 })
                 .flatMap(new Func1<LegacyDocument, Observable<String>>() {
                     @Override
                     public Observable<String> call(final LegacyDocument legacyDocument) {
-                        return getStringObservable(legacyDocument);
+                        return getStringObservable(legacyDocument)
+                                .subscribeOn(Schedulers.from(execA)) //TO AVOID TIMEOUTS !!!
+                                ;
                     }
                 })
                 .flatMap(new Func1<String, Observable<String>>() {
                     @Override
-                    public Observable<String> call(String string) {return slowConsumer(string);
+                    public Observable<String> call(String string) {
+                        return slowConsumer(string)
+                                .subscribeOn(Schedulers.from(execC))
+                                ;
                     }
                 }).subscribe(
                 new Subscriber<String>() {
@@ -117,7 +125,7 @@ public class ObserveSubscribeFlatmaps {
             @Override
             public void call(Subscriber<? super String> subscriber) {
                 try{
-                    Thread.sleep(100);
+                    Thread.sleep(0);
                     log.info(string);
                     subscriber.onNext(string);
                     subscriber.onCompleted();
